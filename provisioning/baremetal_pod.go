@@ -67,6 +67,9 @@ const (
 	cboOwnedAnnotation               = "baremetal.openshift.io/owned"
 	cboLabelName                     = "baremetal.openshift.io/cluster-baremetal-operator"
 	externalTrustBundleConfigMapName = "cbo-trusted-ca"
+	bmcCACertMountPath               = "/certs/ca/bmc"
+	bmcCACertConfigMapName           = "bmc-verify-ca"
+	bmcCACertVolume                  = "bmc-ca"
 	pullSecretEnvVar                 = "IRONIC_AGENT_PULL_SECRET" // #nosec
 	// Default cert directory set by kubebuilder
 	baremetalWebhookCertMountPath = "/tmp/k8s-webhook-server/serving-certs"
@@ -122,6 +125,12 @@ var baremetalWebhookCertMount = corev1.VolumeMount{
 	Name:      baremetalWebhookCertVolume,
 	ReadOnly:  true,
 	MountPath: baremetalWebhookCertMountPath,
+}
+
+var baremetalCACertMount = corev1.VolumeMount{
+	Name:      bmcCACertVolume,
+	ReadOnly:  true,
+	MountPath: bmcCACertMountPath,
 }
 
 var pullSecret = corev1.EnvVar{
@@ -194,6 +203,17 @@ var metal3Volumes = []corev1.Volume{
 		},
 	},
 	trustedCAVolume(),
+	{
+		Name: bmcCACertVolume,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: bmcCACertConfigMapName,
+				},
+				Optional: pointer.BoolPtr(true),
+			},
+		},
+	},
 	{
 		Name: ironicTlsVolume,
 		VolumeSource: corev1.VolumeSource{
@@ -699,6 +719,10 @@ func createContainerMetal3Ironic(images *Images, info *ProvisioningInfo, config 
 	}
 	if !config.DisableVirtualMediaTLS {
 		volumes = append(volumes, vmediaTlsMount)
+	}
+	_, err := info.Client.CoreV1().ConfigMaps(info.Namespace).Get(context.TODO(), bmcCACertConfigMapName, metav1.GetOptions{})
+	if err == nil {
+		volumes = append(volumes, baremetalCACertMount)
 	}
 
 	container := corev1.Container{
